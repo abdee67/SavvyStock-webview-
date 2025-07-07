@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #f0f0f0; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); display: inline-block; }
+        h1 { color: #d9534f; }
+        button { padding: 10px 20px; font-size: 16px; color: white; background-color: #007bff; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        .loader {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Oops! Something went wrong.</h1>
+    <p id="error-description">Could not connect to the internet or load the page.</p>
+    <div id="retry-loader" class="loader"></div>
+    <button id="retry-button" onclick="retry()">Retry</button>
+</div>
+
+<script type="text/javascript">
+    function showError(description) {
+        document.getElementById('error-description').textContent = description;
+        document.getElementById('retry-loader').style.display = 'none';
+    }
+
+    function retry() {
+        document.getElementById('retry-loader').style.display = 'block';
+        if (window.Android && Android.retryLastPage) {
+            Android.retryLastPage(); // Java will handle the retry
+        } else {
+            location.reload(); // fallback in browser
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.getElementById('retry-loader').style.display = 'none';
+    });
+</script>
+</body>
+</html>
