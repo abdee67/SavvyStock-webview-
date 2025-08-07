@@ -80,7 +80,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CAMERA_PERMISSION = 123;
     private static final int FILECHOOSER_RESULTCODE = 1;
     private static final String PRINT_RECRUIT_LAYOUT = "recruitPrintLayout";
-    private static final String TARGET_URL = "https://techequations.com/savvy/signin.xhtml";
+    private static final String TARGET_URL = "https://savvystock.techequations.com/stock/index.xhtml";
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -202,7 +202,6 @@ public class MainActivity extends AppCompatActivity {
         } else {
             webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         }
-        // Add this to your setupWebView() method
         webView.setOnTouchListener(new View.OnTouchListener() {
             private float startY;
 
@@ -235,14 +234,6 @@ public class MainActivity extends AppCompatActivity {
         public boolean onTouchEvent(MotionEvent event) {
             requestDisallowInterceptTouchEvent(true);
             return super.onTouchEvent(event);
-        }
-    }
-    private boolean checkDownloadPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return Environment.isExternalStorageManager();
-        } else {
-            return ContextCompat.checkSelfPermission(this,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
         }
     }
 
@@ -421,8 +412,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
-// Remove the MANAGE_STORAGE_PERMISSION_CODE related code from onActivityResult
 
     private void requestCameraPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -721,15 +710,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onBackPressed() {
-        if (webView.canGoBack() && !isErrorPageShown) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
-    }
-
-    @Override
     protected void onDestroy() {
         if (webView != null) {
             webView.destroy();
@@ -805,8 +785,6 @@ public class MainActivity extends AppCompatActivity {
                     "}" +
                     "</style>";
 
-
-
             runOnUiThread(() -> webView.evaluateJavascript(
                     "(function() {" +
                             "var el = document.getElementById('" + elementId + "');" +
@@ -832,8 +810,6 @@ public class MainActivity extends AppCompatActivity {
                     }
             ));
         }
-
-
 
         private void printHtmlContent(String htmlContent) {
             // Create a temporary WebView for printing
@@ -920,68 +896,6 @@ public class MainActivity extends AppCompatActivity {
         private void showPrintError(String message) {
             runOnUiThread(() -> {
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show();
-            });
-        }
-        public void showDownloadNotification(File file) {
-            String CHANNEL_ID = "download_channel";
-            NotificationManager notificationManager =
-                    (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                NotificationChannel channel = new NotificationChannel(
-                        CHANNEL_ID,
-                        "Downloads",
-                        NotificationManager.IMPORTANCE_DEFAULT
-                );
-                notificationManager.createNotificationChannel(channel);
-            }
-
-            Uri fileUri = FileProvider.getUriForFile(
-                    context,
-                    context.getPackageName() + ".provider",
-                    file
-            );
-
-            Intent viewIntent = new Intent(Intent.ACTION_VIEW);
-            viewIntent.setDataAndType(fileUri, getMimeType(file.getName()));
-            viewIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-
-            PendingIntent pendingIntent = PendingIntent.getActivity(
-                    context, 0, viewIntent, PendingIntent.FLAG_IMMUTABLE
-            );
-
-            NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                    .setContentTitle("Download complete")
-                    .setContentText(file.getName())
-                    .setContentIntent(pendingIntent)
-                    .setAutoCancel(true);
-
-            notificationManager.notify((int) System.currentTimeMillis(), builder.build());
-        }
-
-        private String getMimeType(String fileName) {
-            String extension = MimeTypeMap.getFileExtensionFromUrl(fileName);
-            return extension != null ?
-                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase()) :
-                    "*/*";
-        }
-
-        private void notifyFileDownload(File file, String mimeType) {
-            runOnUiThread(() -> {
-                showDownloadNotification(file);
-                Toast.makeText(context, "Download complete: " + file.getName(),
-                        Toast.LENGTH_LONG).show();
-
-                // For Android 10+, we don't need to scan files as MediaStore handles it
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                    MediaScannerConnection.scanFile(
-                            context,
-                            new String[]{file.getAbsolutePath()},
-                            new String[]{mimeType},
-                            (path, uri) -> Log.d(TAG, "File scanned: " + path)
-                    );
-                }
             });
         }
     }
