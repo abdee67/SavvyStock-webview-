@@ -1,5 +1,6 @@
 package com.savvyy.stockmanagement;
 
+import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -21,6 +22,7 @@ import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.FileProvider;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -43,6 +45,7 @@ public class BlobDownloader {
     @JavascriptInterface
     public void saveBase64File(String base64Data, String mimeType) {
         Log.d(TAG, "saveBase64File() called; mimeType=" + mimeType);
+        logStorageState();
 
         try {
             // Validate base64 data
@@ -52,11 +55,13 @@ public class BlobDownloader {
 
             String extension = getExtensionFromMimeType(mimeType);
             String fileName = "Download_" + System.currentTimeMillis() + extension;
+            String base64Content = base64Data.split(",")[1];
+            byte[] fileData = Base64.decode(base64Content, Base64.DEFAULT);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                saveFileUsingMediaStore(fileName, mimeType, base64Data);
+                saveViaMediaStore(fileName, mimeType, fileData);
             } else {
-                saveFileLegacy(fileName, mimeType, base64Data);
+                saveLegacy(fileName, mimeType, fileData);
             }
 
         } catch (Exception e) {
@@ -64,47 +69,102 @@ public class BlobDownloader {
             showToast("Download failed: " + e.getMessage());
         }
     }
+    private void logStorageState() {
+        Log.d(TAG, "Storage state:");
+        Log.d(TAG, "External storage state: " + Environment.getExternalStorageState());
 
-    @RequiresApi(api = Build.VERSION_CODES.Q)
-    private void saveFileUsingMediaStore(String fileName, String mimeType, String base64Data) throws IOException {
-        ContentResolver resolver = context.getContentResolver();
-        ContentValues contentValues = new ContentValues();
-        contentValues.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
-        contentValues.put(MediaStore.Downloads.MIME_TYPE, mimeType);
-        contentValues.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-        contentValues.put(MediaStore.Downloads.IS_PENDING, 1);
-
-        Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues);
-        if (uri == null) {
-            throw new IOException("Failed to create MediaStore entry");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                ContentResolver resolver = context.getContentResolver();
+                Uri uri = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                try (Cursor cursor = resolver.query(uri, null, null, null, null)) {
+                    Log.d(TAG, "MediaStore Downloads items count: " +
+                            (cursor != null ? cursor.getCount() : 0));
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error checking MediaStore", e);
+            }
         }
+    }
 
-        try (OutputStream out = resolver.openOutputStream(uri)) {
-            byte[] fileData = Base64.decode(base64Data.split(",")[1], Base64.DEFAULT);
-            out.write(fileData);
+    @SuppressLint("Range")
+    @RequiresApi(api = Build.VERSION_CODES.Q)
+    private void saveViaMediaStore(String fileName, String mimeType, byte[] fileData) throws IOException {
+        ContentResolver resolver = context.getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+        values.put(MediaStore.Downloads.MIME_TYPE, mimeType);
+        values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+        values.put(MediaStore.Downloads.IS_PENDING, 1);
 
-            // Mark download as complete
-            contentValues.clear();
-            contentValues.put(MediaStore.Downloads.IS_PENDING, 0);
-            resolver.update(uri, contentValues, null, null);
+        Uri uri = null;
+        try {
+            uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                throw new IOException("Failed to create MediaStore entry");
+            }
 
+            try (OutputStream out = resolver.openOutputStream(uri)) {
+                if (out == null) {
+                    throw new IOException("Failed to open output stream");
+                }
+                out.write(fileData);
+            }
+
+            // Mark as completed
+            values.clear();
+            values.put(MediaStore.Downloads.IS_PENDING, 0);
+            resolver.update(uri, values, null, null);
+
+            // Get the actual file path for notification
+            String filePath = null;
+            try (Cursor cursor = resolver.query(uri,
+                    new String[]{MediaStore.Downloads.DATA},
+                    null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    filePath = cursor.getString(cursor.getColumnIndex(MediaStore.Downloads.DATA));
+                }
+            }
+
+            showDownloadCompleteNotification(uri, fileName, filePath);
             showToast("File saved to Downloads/" + fileName);
-            showDownloadCompleteNotification(uri, fileName);
+
         } catch (Exception e) {
-            // Delete the failed entry
-            resolver.delete(uri, null, null);
+            // Clean up if failed
+            if (uri != null) {
+                resolver.delete(uri, null, null);
+            }
             throw e;
         }
     }
 
-    private void saveFileLegacy(String fileName, String mimeType, String base64Data) throws IOException {
+    @SuppressWarnings("deprecation")
+    private void saveLegacy(String fileName, String mimeType, byte[] fileData) throws IOException {
         File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+
+        // Fallback to app-specific storage if we can't access Downloads
+        if (!downloadsDir.exists() || !downloadsDir.canWrite()) {
+            downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (downloadsDir == null) {
+                downloadsDir = context.getFilesDir();
+            }
+        }
+
         if (!downloadsDir.exists() && !downloadsDir.mkdirs()) {
-            throw new IOException("Failed to create Downloads directory");
+            throw new IOException("Failed to create download directory");
         }
 
         File file = new File(downloadsDir, fileName);
-        byte[] fileData = Base64.decode(base64Data.split(",")[1], Base64.DEFAULT);
+
+        // Ensure no duplicate files
+        int counter = 1;
+        while (file.exists()) {
+            String newName = fileName.replaceFirst(
+                    "(\\.\\w+)?$",
+                    " (" + (counter++) + ")$1"
+            );
+            file = new File(downloadsDir, newName);
+        }
 
         try (FileOutputStream fos = new FileOutputStream(file)) {
             fos.write(fileData);
@@ -115,31 +175,52 @@ public class BlobDownloader {
                 context,
                 new String[]{file.getAbsolutePath()},
                 new String[]{mimeType},
-                (path, uri) -> Log.d(TAG, "Media scan completed for: " + path)
+                (path, uri) -> {
+                    if (uri == null) {
+                        Log.e(TAG, "Media scan failed for: " + path);
+                    } else {
+                        showDownloadCompleteNotification(uri, fileName, path);
+                    }
+                }
         );
 
-        showToast("File saved to Downloads/" + fileName);
-        showDownloadCompleteNotification(Uri.fromFile(file), fileName);
+        showToast("File saved to " + file.getParentFile().getName() + "/" + file.getName());
     }
 
-    private void showDownloadCompleteNotification(Uri fileUri, String fileName) {
-        String CHANNEL_ID = "download_channel";
-        NotificationManager notificationManager =
+    private void showDownloadCompleteNotification(Uri uri, String fileName, String filePath) {
+        String channelId = "download_channel";
+        NotificationManager manager =
                 (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
 
         // Create notification channel for Android 8+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
+                    channelId,
                     "Downloads",
                     NotificationManager.IMPORTANCE_DEFAULT
             );
-            notificationManager.createNotificationChannel(channel);
+            manager.createNotificationChannel(channel);
         }
 
-        // Create intent to view the file
+        // Create content URI using FileProvider for Android 7+
+        Uri contentUri;
+        if (filePath != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                contentUri = FileProvider.getUriForFile(
+                        context,
+                        context.getPackageName() + ".provider",
+                        new File(filePath)
+                );
+            } catch (Exception e) {
+                contentUri = uri;
+            }
+        } else {
+            contentUri = uri;
+        }
+
+        // Create view intent
         Intent viewIntent = new Intent(Intent.ACTION_VIEW);
-        viewIntent.setDataAndType(fileUri, getMimeType(fileName));
+        viewIntent.setDataAndType(contentUri, getMimeType(fileName));
         viewIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -149,14 +230,14 @@ public class BlobDownloader {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle("Download complete")
                 .setContentText(fileName)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true);
 
-        notificationManager.notify((int) System.currentTimeMillis(), builder.build());
+        manager.notify((int) System.currentTimeMillis(), builder.build());
     }
 
     private String getMimeType(String fileName) {
@@ -179,53 +260,22 @@ public class BlobDownloader {
      */
     public static String getBlobDownloadScript(String mimeType, String fileName) {
         return "(function() {" +
-                "if (window._blobHandlerInjected) return;" +
-                "window._blobHandlerInjected = true;" +
-
-                "function downloadBlob(blob, fileName) {" +
-                "  return new Promise((resolve, reject) => {" +
+                "  if (window._blobHookInjected) return;" +
+                "  window._blobHookInjected = true;" +
+                "  const originalCreateObjectURL = URL.createObjectURL;" +
+                "  URL.createObjectURL = function(blob) {" +
                 "    const reader = new FileReader();" +
-                "    reader.onload = () => {" +
-                "      try {" +
-                "        const base64 = reader.result;" +
-                "        if (window.BlobDownloader && window.BlobDownloader.saveBlob) {" +
-                "          window.BlobDownloader.saveBlob(base64, blob.type, fileName);" +
-                "          resolve();" +
-                "        } else {" +
-                "          reject('BlobDownloader not available');" +
-                "        }" +
-                "      } catch (e) {" +
-                "        reject(e);" +
+                "    reader.onloadend = function() {" +
+                "      const base64Data = reader.result;" +  // Keep the full data URL
+                "      const type = blob.type || '" + mimeType + "';" +
+                "      const name = '" + fileName + "' || 'downloaded_file';" +
+                "      if (window.BlobDownloader && window.BlobDownloader.saveBase64File) {" +
+                "        window.BlobDownloader.saveBase64File(base64Data, type);" +
                 "      }" +
                 "    };" +
-                "    reader.onerror = () => reject(reader.error);" +
                 "    reader.readAsDataURL(blob);" +
-                "  });" +
-                "}" +
-
-                "const originalCreateObjectURL = URL.createObjectURL;" +
-                "URL.createObjectURL = function(blob) {" +
-                "  if (blob instanceof Blob) {" +
-                "    const url = originalCreateObjectURL.call(this, blob);" +
-                "    const fileName = 'file_' + Date.now() + getExtension(blob.type);" +
-                "    downloadBlob(blob, fileName).catch(e => console.error('Blob download failed:', e));" +
-                "    return url;" +
-                "  }" +
-                "  return originalCreateObjectURL.apply(this, arguments);" +
-                "};" +
-
-                "function getExtension(mimeType) {" +
-                "  const extensions = {" +
-                "    'application/pdf': '.pdf'," +
-                "    'image/jpeg': '.jpg'," +
-                "    'image/png': '.png'," +
-                "    'application/vnd.ms-excel': '.xls'," +
-                "    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx'," +
-                "    'application/msword': '.doc'," +
-                "    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'" +
+                "    return originalCreateObjectURL.call(URL, blob);" +
                 "  };" +
-                "  return extensions[mimeType] || '.bin';" +
-                "}" +
                 "})();";
     }
 

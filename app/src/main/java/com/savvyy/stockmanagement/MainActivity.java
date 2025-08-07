@@ -176,6 +176,7 @@ public class MainActivity extends AppCompatActivity {
 
         // JavaScript interfaces
         webView.addJavascriptInterface(new BlobDownloader(this), "BlobDownloader");
+        injectBlobHook();
         webView.addJavascriptInterface(webAppInterface, "AndroidInterface");
         webView.addJavascriptInterface(webAppInterface, "Android");
         webView.addJavascriptInterface(new Object() {
@@ -248,24 +249,7 @@ public class MainActivity extends AppCompatActivity {
     private void setupDownloadListener() {
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             Log.d(TAG, "Download requested: " + url);
-            if (!checkDownloadPermissions()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                    intent.setData(Uri.parse("package:" + getPackageName()));
-                    startActivityForResult(intent, MANAGE_STORAGE_PERMISSION_CODE);
-                } else {
-                    ActivityCompat.requestPermissions(MainActivity.this,
-                            new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                            STORAGE_PERMISSION_CODE);
-                }
-                return;
-            }
             if (url.startsWith("blob:")) {
-                // Show progress dialog
-                ProgressDialog progressDialog = new ProgressDialog(this);
-                progressDialog.setMessage("Preparing download...");
-                progressDialog.setCancelable(false);
-                progressDialog.show();
 
                 try {
                     String js = BlobDownloader.getBlobDownloadScript(
@@ -274,39 +258,47 @@ public class MainActivity extends AppCompatActivity {
                     );
 
                     webView.evaluateJavascript(js, value -> {
-                        progressDialog.dismiss();
                         if (value == null || value.equals("null")) {
-                            Toast.makeText(this, "Failed to prepare download", Toast.LENGTH_LONG).show();
+                           // Toast.makeText(this, "Failed to prepare download", Toast.LENGTH_LONG).show();
                         }
                     });
                 } catch (Exception e) {
-                    progressDialog.dismiss();
                     Toast.makeText(this, "Download error: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             } else {
                 // Handle regular HTTP downloads
-                try {
+                 try {
                     DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url))
                             .setMimeType(mimeType)
                             .addRequestHeader("User-Agent", userAgent)
-                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                            .setDestinationInExternalPublicDir(
-                                    Environment.DIRECTORY_DOWNLOADS,
-                                    URLUtil.guessFileName(url, contentDisposition, mimeType)
-                            );
+                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+
+                    // Only set direct path for pre-Android 10
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                        if (ContextCompat.checkSelfPermission(this,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(this,
+                                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                                    STORAGE_PERMISSION_CODE);
+                            return;
+                        }
+
+                        request.setDestinationInExternalPublicDir(
+                                Environment.DIRECTORY_DOWNLOADS,
+                                URLUtil.guessFileName(url, contentDisposition, mimeType)
+                        );
+                    }
 
                     DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                     if (dm != null) {
                         dm.enqueue(request);
-                    } else {
-                        throw new IllegalStateException("DownloadManager not available");
                     }
                 } catch (Exception e) {
                     Toast.makeText(this, "Download failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             }
-        });
-    }
+            });
+        }
 
 
     private void setupFabRefresh() {
