@@ -80,7 +80,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CAMERA_PERMISSION = 123;
     private static final int FILECHOOSER_RESULTCODE = 1;
     private static final String PRINT_RECRUIT_LAYOUT = "recruitPrintLayout";
-    private static final String TARGET_URL = "https://savvystock.techequations.com/stock/index.xhtml";
+    private static final String TARGET_URL = "https://techequations.com/savvy/signin.xhtml";
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -715,6 +715,15 @@ public class MainActivity extends AppCompatActivity {
             webView.destroy();
         }
         super.onDestroy();
+    }
+    @SuppressLint("GestureBackNavigation")
+    @Override
+    public void onBackPressed() {
+        if (webView.canGoBack() && !isErrorPageShown) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     private void showPrintError(String error) {
