@@ -292,7 +292,7 @@ public class BlobDownloader {
             default:
                 Log.w("BlobDownloader", "Unknown MIME type: " + mimeType);
                 String fallback = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-                return (fallback != null ? "." + fallback : ".bin");
+                return (fallback != null ? "." + fallback : ".xlsx");
         }
     }
 }
