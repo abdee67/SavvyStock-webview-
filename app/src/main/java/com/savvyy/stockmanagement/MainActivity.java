@@ -34,6 +34,8 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.Gravity;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -111,6 +113,24 @@ public class MainActivity extends AppCompatActivity {
         // Load initial URL
         checkNetworkAndLoad();
     }
+    // In your onCreateOptionsMenu or similar
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.test_print) {
+            webView.evaluateJavascript(
+                    "if (typeof AndroidPrint !== 'undefined') { AndroidPrint.printCashFlowTable(); }",
+                    null
+            );
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
@@ -178,6 +198,7 @@ public class MainActivity extends AppCompatActivity {
         webView.addJavascriptInterface(new BlobDownloader(this), "BlobDownloader");
         injectBlobHook();
         webView.addJavascriptInterface(webAppInterface, "AndroidInterface");
+        webView.addJavascriptInterface(new PrintInterface(this, webView), "AndroidPrint");
         webView.addJavascriptInterface(webAppInterface, "Android");
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -191,7 +212,6 @@ public class MainActivity extends AppCompatActivity {
                 "console.log = function(message) { AndroidLogger.log(message); };",
                 null
         );
-
         // Other setup
         injectPrintHandler();
         setupDownloadListener();
@@ -244,15 +264,10 @@ public class MainActivity extends AppCompatActivity {
 
                 try {
                     String js = BlobDownloader.getBlobDownloadScript(
-                            mimeType != null ? mimeType : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            URLUtil.guessFileName(url, contentDisposition, mimeType)
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            URLUtil.guessFileName(url, contentDisposition, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     );
-
-                    webView.evaluateJavascript(js, value -> {
-                        if (value == null || value.equals("null")) {
-                           // Toast.makeText(this, "Failed to prepare download", Toast.LENGTH_LONG).show();
-                        }
-                    });
+                    webView.evaluateJavascript(js, null);
                 } catch (Exception e) {
                     Toast.makeText(this, "Download error: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
@@ -423,15 +438,14 @@ public class MainActivity extends AppCompatActivity {
 
     private void injectPrintHandler() {
         webView.setWebViewClient(new WebViewClient() {
-
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 shimmerView.stopShimmer();
                 shimmerView.setVisibility(View.GONE);
                 webView.setVisibility(View.VISIBLE);
-                // More robust print handler injection
-                String overridePrintJS = "(function() {" +
+                // Your existing AlshPrintJS (keep this unchanged)
+                String AlshPrintJS = "(function() {" +
                         "   window._originalPrintSection = window.printSection;" +
                         "   window._originalWindowPrint = window.print;" +
                         "   window.printSection = function(id) {" +
@@ -439,7 +453,7 @@ public class MainActivity extends AppCompatActivity {
                         "       if (typeof AndroidInterface !== 'undefined') {" +
                         "           AndroidInterface.printPage(id);" +
                         "       }" +
-                        "else if (window._originalPrintSection) {" +
+                        "       else if (window._originalPrintSection) {" +
                         "           window._originalPrintSection(id);" +
                         "       }" +
                         "   };" +
@@ -453,25 +467,22 @@ public class MainActivity extends AppCompatActivity {
                         "       }" +
                         "   };" +
                         "})();";
-
-
-                webView.evaluateJavascript(overridePrintJS, null);// Delay injection until AJAX queue is clear
-                String safeInjectJS =
-                        "(function waitUntilReady() {" +
-                                "   if (typeof PrimeFaces !== 'undefined' && PrimeFaces.ajax.Queue.isEmpty() && document.readyState === 'complete') {" +
-                                "       setTimeout(function() {" +
-                                "           try {" +
-                                "               // Fix for dropdowns" +
-                                "               var selects = document.querySelectorAll('.ui-selectonemenu');" +
-                                "               selects.forEach(function(select) {" +
-                                "                   select.style.pointerEvents = 'auto';" +
-                                "               });" +
-                                "           } catch (e) { console.error('Dropdown fix error', e); }" +
-                                "       }, 500);" +
-                                "   } else {" +
-                                "       setTimeout(waitUntilReady, 300);" +
-                                "   }" +
-                                "})();";
+                webView.evaluateJavascript(AlshPrintJS, null);
+                String safeInjectJS = "(function waitUntilReady() {" +
+                        "   if (typeof PrimeFaces !== 'undefined' && PrimeFaces.ajax.Queue.isEmpty() && document.readyState === 'complete') {" +
+                        "       setTimeout(function() {" +
+                        "           try {" +
+                        "               // Fix for dropdowns" +
+                        "               var selects = document.querySelectorAll('.ui-selectonemenu');" +
+                        "               selects.forEach(function(select) {" +
+                        "                   select.style.pointerEvents = 'auto';" +
+                        "               });" +
+                        "           } catch (e) { console.error('Dropdown fix error', e); }" +
+                        "       }, 500);" +
+                        "   } else {" +
+                        "       setTimeout(waitUntilReady, 300);" +
+                        "   }" +
+                        "})();";
 
                 webView.evaluateJavascript(safeInjectJS, null);
             }
@@ -506,6 +517,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
 
     private abstract class CustomWebChromeClient extends WebChromeClient {
         @Override
@@ -573,6 +585,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
+            // Test if our interface is available
             Log.d(TAG, "Page finished loading: " + url);
             isErrorPageShown = false;
             lastLoadedUrl = url;
@@ -582,11 +595,7 @@ public class MainActivity extends AppCompatActivity {
                 injectDropdownFixes(view);
                 injectPrintHandler();
                 injectBlobHook();
-            }, 800);
-
-            new Handler().postDelayed(MainActivity.this::injectPrintHandler, 1200);
-
-            setupDownloadListener();
+            }, 1500);
         }
     }
     private void injectBlobHook() {

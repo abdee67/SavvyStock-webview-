@@ -244,7 +244,7 @@ public class BlobDownloader {
         String extension = MimeTypeMap.getFileExtensionFromUrl(fileName);
         return extension != null ?
                 MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase()) :
-                "application/octet-stream";
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     }
 
     private void showToast(String message) {
@@ -266,9 +266,12 @@ public class BlobDownloader {
                 "  URL.createObjectURL = function(blob) {" +
                 "    const reader = new FileReader();" +
                 "    reader.onloadend = function() {" +
-                "      const base64Data = reader.result;" +  // Keep the full data URL
-                "      const type = blob.type || '" + mimeType + "';" +
-                "      const name = '" + fileName + "' || 'downloaded_file';" +
+                "      const base64Data = reader.result;" +
+                "      let type = blob.type;" +
+                "      if (!type || type === 'application/octet-stream') {" +
+                "        type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';" +
+                "      }" +
+                "      const name = '" + fileName + "' || 'export.xlsx';" +
                 "      if (window.BlobDownloader && window.BlobDownloader.saveBase64File) {" +
                 "        window.BlobDownloader.saveBase64File(base64Data, type);" +
                 "      }" +
@@ -278,6 +281,7 @@ public class BlobDownloader {
                 "  };" +
                 "})();";
     }
+
 
     public static String getExtensionFromMimeType(String mimeType) {
         switch (mimeType) {
@@ -289,10 +293,12 @@ public class BlobDownloader {
             case "text/plain": return ".txt";
             case "image/jpeg": return ".jpg";
             case "image/png": return ".png";
+            case "application/octet-stream": return ".xlsx"; // 👈 force excel for unknown blobs
             default:
-                Log.w("BlobDownloader", "Unknown MIME type: " + mimeType);
+                Log.w(TAG, "Unknown MIME type: " + mimeType);
                 String fallback = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
                 return (fallback != null ? "." + fallback : ".xlsx");
         }
     }
+
 }

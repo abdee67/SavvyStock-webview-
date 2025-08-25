@@ -171,6 +171,7 @@
        android:backgroundTint="@color/material_on_surface_stroke"
         android:contentDescription="Refresh page"/>
 
+
         <!-- Progress Bar -->
     <ProgressBar
         android:id="@+id/progressBar"
